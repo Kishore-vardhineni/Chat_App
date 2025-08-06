@@ -44,6 +44,7 @@ const getUpdatedByUserId = async (req, res) => {
         { new: true, runValidators: true, projection: { password: 0 } }
       );
 
+      console.log("Updated user details:", updatedUser);
       if (!updatedUser) {
         return res.status(404).json({ message: "User not found" });
       }
