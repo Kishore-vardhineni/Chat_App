@@ -1,13 +1,16 @@
 const bcrypt = require("bcryptjs");
 const User = require("../models/userModel");
 const jwt = require("jsonwebtoken");
+const nodemailer = require("nodemailer");
+const crypto = require("crypto");
 
-const signup = async (req, res) => {
+const signUp = async (req, res) => {
    const { username, email, password } = req.body;
 
    try {
        // Check if user already exists
        const existingUser = await User.findOne({ email });
+
        if (existingUser) {
            return res.status(400).json({ message: "User already exists" });
        }
@@ -27,12 +30,13 @@ const signup = async (req, res) => {
    }
 };
 
-const signin = async (req, res) => {
+const signIn = async (req, res) => {
     const { email, password } = req.body;
     console.log("Signin request received:", email, password);
 
     try {
         const user = await User.findOne({ email });
+
         if(!user) {
             return res.status(404).json({ message: "User not found" });
         }
@@ -67,4 +71,88 @@ const verifyTokens = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
-module.exports = { signup, signin, verifyTokens };
+
+const logOut = async ( req, res ) => {
+    try {
+      return res.status(200).json({ message: "Logout successful" });
+    } catch (error) {
+        return res.status(500).json({ message: "Internal server error" });
+    }
+} 
+
+const forgotPassword = async (req, res ) => {
+   const { email } = req.body;
+
+   try {
+      const user = await User.findOne({ email });
+      
+      if(!user) {
+         return res.status(404).json({ message: "User not found with taht email" })
+      }
+
+      const resetToken = crypto.randomBytes(32).toString("hex");
+      const resetTokenExpiry = Date.now() + 1000 * 60 * 60;
+
+      user.resetToken = resetToken;
+      user.resetTokenExpiry = resetTokenExpiry;
+
+      await user.save();
+      
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+           user: process.env.SMTP_EMAIL,
+           pass: process.env.SMTP_PASS
+        }
+      })
+
+      const resetLink = `http://localhost:4000/api/auth/reset-password/${resetToken}`;
+
+      await transporter.sendMail({
+         from: process.env.SMTP_EMAIL,
+         to: user.email,
+         subject: 'Password Reset Request',
+         html: `<p>Click <a href="${resetLink}">here</a> to reset your password.</p>`,
+      });
+
+      res.status(200).json({ message: "Password reset link sent to your email" }); 
+
+   } catch (error) {
+       return res.status(500).json({ message: "Internal server error" });
+   } 
+
+}
+
+const resetPassword = async (req, res) => {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    console.log("New password", token, password);
+
+    try {
+       const user = await User.findOne({
+           resetToken: token,
+           resetTokenExpiry: { $gt: Date.now() }
+       })
+
+       if(!user) {
+           return res.status(400).json({ message: "Invalid or expired token" });
+       }
+
+       const hashedPassword = await bcrypt.hash(password.toString(), 10);
+
+       user.password = hashedPassword;
+       user.resetToken = undefined;
+       user.resetTokenExpiry = undefined;
+
+       await user.save();
+
+       console.log("Reset password request received:", user);
+
+       res.status(200).json({ message: "Password has been reset successfully" });
+       
+    } catch (error) {
+        return res.status(500).json({ message: "Internal server error" });
+    }
+}
+module.exports = { signUp, signIn, verifyTokens, logOut, forgotPassword, resetPassword };
