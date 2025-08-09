@@ -155,4 +155,30 @@ const resetPassword = async (req, res) => {
         return res.status(500).json({ message: "Internal server error" });
     }
 }
-module.exports = { signUp, signIn, verifyTokens, logOut, forgotPassword, resetPassword };
+
+const changePassword = async (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+
+     console.log("Change password request received:", currentPassword, newPassword);
+    try {
+       const user = await User.findById(req.user.id);
+
+       console.log("User found:", user);
+       if(!user) {
+           return res.status(404).json({ message: "User not found" });
+       }
+
+       const isMatch = await bcrypt.compare(currentPassword.toString(), user.password);
+       if(!isMatch) {
+          return res.status(401).json({ message: "Current password is incorrect" });
+       }
+
+       const hashedPassword = await bcrypt.hash(newPassword.toString(), 10);
+       user.password = hashedPassword;
+       await user.save();
+       res.status(200).json({ message: "Password changed successfully" });
+    } catch (error) {
+        return res.status(500).json({ message: "Internal server error" });
+    }
+}
+module.exports = { signUp, signIn, verifyTokens, logOut, forgotPassword, resetPassword, changePassword };
