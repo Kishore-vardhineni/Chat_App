@@ -4,6 +4,8 @@ const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 
+
+let refreshTokens = [];
 const signUp = async (req, res) => {
    const { username, email, password } = req.body;
 
@@ -46,12 +48,17 @@ const signIn = async (req, res) => {
             return res.status(401).json({ message: "Invalid credentails"});
         }
 
-        const token = jwt.sign({ id: user._id}, process.env.JWT_SECRET, { expiresIn: '1h' });
+        const accessToken = jwt.sign({ id: user._id}, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
+
+        const refreshToken = jwt.sign({ id: user.id}, process.env.JWT_REFRESH_SECRET, { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN })
+
+        refreshTokens.push(refreshToken);
 
         res.status(200).json({
             message: "Login successful",
             user: { id: user._id, username: user.username, email: user.email },
-            access_token: token
+            access_token: accessToken,
+            refresh_token: refreshToken
         });        
     } catch (error) {
         return res.status(500).json({ message: "Internal server error" });
@@ -72,13 +79,16 @@ const verifyTokens = async (req, res) => {
   }
 };
 
-const logOut = async ( req, res ) => {
-    try {
-      return res.status(200).json({ message: "Logout successful" });
-    } catch (error) {
-        return res.status(500).json({ message: "Internal server error" });
-    }
-} 
+const logOut = async (req, res) => {
+  const { token } = req.body;
+  try {
+    refreshTokens = refreshTokens.filter((t) => t !== token);
+    res.json({ message: "Logged out successfully" });
+    return res.status(200).json({ message: "Logout successful" });
+  } catch (error) {
+    return res.status(500).json({ message: "Internal server error" });
+  }
+}; 
 
 const forgotPassword = async (req, res ) => {
    const { email } = req.body;
@@ -169,6 +179,8 @@ const changePassword = async (req, res) => {
        }
 
        const isMatch = await bcrypt.compare(currentPassword.toString(), user.password);
+
+       console.log("Password match:", isMatch);
        if(!isMatch) {
           return res.status(401).json({ message: "Current password is incorrect" });
        }
@@ -181,4 +193,31 @@ const changePassword = async (req, res) => {
         return res.status(500).json({ message: "Internal server error" });
     }
 }
-module.exports = { signUp, signIn, verifyTokens, logOut, forgotPassword, resetPassword, changePassword };
+
+const refreshToken = async (req, res) => {
+    const { refreshToken } = req.body;
+
+    try {
+      if(!refreshToken) {
+         return res.status(401).json({ message: "Refresh token required"})
+      }
+ 
+      if(!refreshTokens.includes(refreshToken)) {
+         return res.status(403).json({ message: "Invalid refresh token"});
+      }
+
+      jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET, (err, user) => {
+         if(err) return res.status(403).json({ message: "Invalid refresh token"});
+
+        const accessToken = jwt.sign({ id: user.id}, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRES_IN })
+
+         res.status(200).json({
+            message: 'Refresh token',
+            access_token: accessToken
+         })
+      })
+    } catch (error) {
+        return res.status(500).json({ message: "Internal server error" });
+    }
+}
+module.exports = { signUp, signIn, verifyTokens, logOut, forgotPassword, resetPassword, changePassword, refreshToken };
