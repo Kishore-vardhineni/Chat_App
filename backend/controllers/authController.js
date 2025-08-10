@@ -6,30 +6,57 @@ const crypto = require("crypto");
 
 
 let refreshTokens = [];
+
 const signUp = async (req, res) => {
-   const { username, email, password } = req.body;
+  const { username, email, password } = req.body;
 
-   try {
-       // Check if user already exists
-       const existingUser = await User.findOne({ email });
+  try {
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
 
-       if (existingUser) {
-           return res.status(400).json({ message: "User already exists" });
-       }
+    if (existingUser) {
+      return res.status(400).json({ message: "User already exists" });
+    }
 
-       // Hash password
-       const hashPassword = await bcrypt.hash(password.toString(), 10);
+    // Hash password
+    const hashPassword = await bcrypt.hash(password.toString(), 10);
 
-       // Create new user
-       const newUser = new User({ username, email, password: hashPassword });
-       await newUser.save();
+    // Create new user
+    const newUser = new User({ username, email, password: hashPassword });
+    await newUser.save();
 
-       res.status(201).json({ message: "User has been created successfully!" });
-       
-   } catch (error) {
-       console.error("Signup error:", error);
-       return res.status(500).json({ message: "Internal server error" });
-   }
+    const token = jwt.sign({ email: newUser.email }, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRES_IN,
+    });
+
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.SMTP_EMAIL,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+
+    const url = `${process.env.CLIENT_URL}/api/auth/verify-email/${token}`;
+
+    await transporter.sendMail({
+      from: process.env.SMTP_EMAIL,
+      to: newUser.email,
+      subject: "Verify your Email",
+      html: `<h2>Eamil Verification</h2>
+                 <p>Click the link below to verify your email:</p>
+                 <a href="${url}">${url}</a>`,
+    });
+
+    res.status(201)
+      .json({
+        message:
+          "Signup successful. Please check your email for verification link.",
+      });
+  } catch (error) {
+    console.error("Signup error:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
 };
 
 const signIn = async (req, res) => {
@@ -211,6 +238,7 @@ const refreshToken = async (req, res) => {
 
         const accessToken = jwt.sign({ id: user.id}, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRES_IN })
 
+         //refreshTokens = refreshTokens.filter(token => token !== refreshToken);
          res.status(200).json({
             message: 'Refresh token',
             access_token: accessToken
@@ -220,4 +248,28 @@ const refreshToken = async (req, res) => {
         return res.status(500).json({ message: "Internal server error" });
     }
 }
-module.exports = { signUp, signIn, verifyTokens, logOut, forgotPassword, resetPassword, changePassword, refreshToken };
+
+const verifyEmail = async (req, res) => {
+  console.log("request", req);
+  try {
+    const user = await User.findOne({ email: req.user.email });
+    if (!user) {
+      return res.status(400).josn({ message: "Invalid token" });
+    }
+
+    console.log("user details", user.isVerified);
+
+    if (user.isVerified)
+      return res.status(400).json({ message: "Email already verified" });
+
+    user.isVerified = true;
+    await user.save();
+
+    res.status(200).json({
+      message: "Email verified successfully",
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+module.exports = { signUp, signIn, verifyTokens, logOut, forgotPassword, resetPassword, changePassword, refreshToken, verifyEmail };
